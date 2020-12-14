@@ -1,0 +1,64 @@
+version: v1beta9
+vars:
+  - name: ENV_KAFKA_BROKERS
+    source: env
+  - name: ENV_INFLUX_URL
+    source: env
+  - name: ENV_INFLUX_TOKEN
+    source: env
+images:
+  app:
+    image: devspace
+    preferSyncOverRebuild: true
+    injectRestartHelper: true
+    appendDockerfileInstructions:
+      - USER root
+    build:
+      docker:
+        skipPush: true
+deployments:
+  - name: data-collector
+    helm:
+      componentChart: true
+      values:
+        containers:
+          - image: devspace
+            env:
+              - name: KAFKA_BROKERS
+                value: '${ENV_KAFKA_BROKERS}'
+              - name: INFLUX_URL
+                value: '${ENV_INFLUX_URL}'
+              - name: ENV_INFLUX_TOKEN
+                value: '${ENV_INFLUX_TOKEN}'
+        service:
+          ports:
+            - port: 9229
+dev:
+  sync:
+    - imageName: app
+      excludePaths:
+        - .git/
+      uploadExcludePaths:
+        - Dockerfile
+        - node_modules/
+        - devspace.yaml
+      onUpload:
+        restartContainer: true
+profiles:
+  - name: production
+    patches:
+      - op: remove
+        path: images.app.injectRestartHelper
+      - op: remove
+        path: images.app.appendDockerfileInstructions
+  - name: interactive
+    patches:
+      - op: add
+        path: dev.interactive
+        value:
+          defaultEnabled: true
+      - op: add
+        path: images.app.entrypoint
+        value:
+          - sleep
+          - '9999999999'
