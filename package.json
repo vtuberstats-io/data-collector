@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@influxdata/influxdb-client": "^1.9.0",
-    "kafkajs": "^1.15.0"
+    "kafkajs": "^1.15.0",
+    "mongodb": "^3.6.3"
   },
   "devDependencies": {
+    "@types/mongodb": "^3.6.3",
     "prettier": "^2.2.1"
   }
 }

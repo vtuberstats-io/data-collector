@@ -28,8 +28,10 @@ deployments:
                 value: '${ENV_KAFKA_BROKERS}'
               - name: INFLUX_URL
                 value: '${ENV_INFLUX_URL}'
-              - name: ENV_INFLUX_TOKEN
+              - name: INFLUX_TOKEN
                 value: '${ENV_INFLUX_TOKEN}'
+              - name: MONGODB_URL
+                value: '${ENV_MONGODB_URL}'
         service:
           ports:
             - port: 9229
