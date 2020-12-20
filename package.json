@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@influxdata/influxdb-client": "^1.9.0",
+    "check-types": "^11.1.2",
     "kafkajs": "^1.15.0",
     "mongodb": "^3.6.3"
   },

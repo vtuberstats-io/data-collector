@@ -4,33 +4,32 @@ const INFLUX_TOKEN = process.env.INFLUX_TOKEN;
 const MONGODB_URL = process.env.MONGODB_URL;
 const HOSTNAME = process.env.HOSTNAME; // offered by kubernetes automatically
 
-if (!KAFKA_BROKERS || !INFLUX_URL || !INFLUX_TOKEN || !MONGODB_URL) {
-  console.error(`missing environment variables, env: ${process.env}`);
+if (!KAFKA_BROKERS || !INFLUX_URL || !INFLUX_TOKEN || !MONGODB_URL || !HOSTNAME) {
+  console.error(`missing environment variables, env: ${JSON.stringify(process.env)}`);
   process.exit(1);
 }
 
+const { addExitHook, registerExitListener } = require('./lib/exit-hook');
 const { Kafka } = require('kafkajs');
 const { InfluxDB } = require('@influxdata/influxdb-client');
 const { MongoClient } = require('mongodb');
-const collectYoutubeChannelInfo = require('./lib/youtube-channel-info-collector');
+const { collectChannelInfo } = require('./lib/collect-channel-info');
 
 const kafka = new Kafka({
   clientId: HOSTNAME,
   brokers: KAFKA_BROKERS.trim().split(',')
 });
 const kafkaDataConsumer = kafka.consumer({ groupId: 'data-collector', sessionTimeout: 12 * 1000 });
+const mongo = new MongoClient(MONGODB_URL);
+const influx = new InfluxDB({
+  url: INFLUX_URL,
+  token: INFLUX_TOKEN
+});
 
 const COLLECTORS = {
-  'youtube-channel-info': collectYoutubeChannelInfo
+  'channel-info': collectChannelInfo
 };
 const TARGET_TOPICS = Array.from(Object.getOwnPropertyNames(COLLECTORS));
-
-const ctx = {
-  influx: new InfluxDB({
-    url: INFLUX_URL,
-    token: INFLUX_TOKEN
-  })
-};
 
 async function init() {
   console.info('connecting to kafka');
@@ -38,13 +37,31 @@ async function init() {
   for (const topic of TARGET_TOPICS) {
     await kafkaDataConsumer.subscribe({ topic });
   }
+  addExitHook(async () => await kafkaDataConsumer.disconnect());
 
   console.info('connecting to mongodb');
-  const db = (await MongoClient.connect(MONGODB_URL)).db('vtuberstats');
+  await mongo.connect();
+  addExitHook(async () => await mongo.close());
+  const db = mongo.db('vtuberstats');
+  const vtuberMetaCollection = db.collection('vtuber-meta');
+  const groupMetaCollection = db.collection('group-meta');
+
+  console.info('preparing influxdb write apis');
+  const influxChannelStatsBucket = influx.getWriteApi('vtuberstats', 'channel-stats', 'ms');
+  addExitHook(async () => await ctx.influxChannelStatsBucket.close());
+
+  const ctx = {
+    influxChannelStatsBucket,
+    vtuberMetaCollection,
+    groupMetaCollection
+  };
 
   console.info('start reading data from kafka');
-  await readMessageFromKafka({ db });
+  await readMessageFromKafka(ctx);
 }
+
+registerExitListener();
+init();
 
 async function readMessageFromKafka(collectorCtx) {
   await kafkaDataConsumer.run({
@@ -58,7 +75,7 @@ async function readMessageFromKafka(collectorCtx) {
         typeof data !== 'object' ||
         typeof meta !== 'object'
       ) {
-        console.warn(`invalid message: '${message}'`);
+        console.warn(`invalid message: '${message.value.toString()}'`);
         return;
       }
 
@@ -68,11 +85,11 @@ async function readMessageFromKafka(collectorCtx) {
         return;
       }
 
-      collector(collectorCtx, data, meta || {}).error((e) => {
-        console.error(`failed to collect message '${message}', err: ${e}`);
-      });
+      try {
+        await collector(collectorCtx, data, meta || {});
+      } catch (e) {
+        console.error(`failed to collect message '${message.value.toString()}', err: ${e.stack}`);
+      }
     }
   });
 }
-
-init().catch((err) => console.error(err));

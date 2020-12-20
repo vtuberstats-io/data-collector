@@ -6,6 +6,8 @@ vars:
     source: env
   - name: ENV_INFLUX_TOKEN
     source: env
+  - name: ENV_MONGODB_URL
+    source: env
 images:
   app:
     image: devspace
