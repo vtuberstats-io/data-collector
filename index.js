@@ -9,11 +9,11 @@ if (!KAFKA_BROKERS || !INFLUX_URL || !INFLUX_TOKEN || !MONGODB_URL || !HOSTNAME)
   process.exit(1);
 }
 
-const { addExitHook, registerExitListener } = require('./lib/exit-hook');
+const { addExitHook } = require('exit-hook-plus');
 const { Kafka } = require('kafkajs');
 const { InfluxDB } = require('@influxdata/influxdb-client');
 const { MongoClient } = require('mongodb');
-const { collectChannelInfo } = require('./lib/collect-channel-info');
+const { verifyChannelInfo, collectChannelInfo } = require('./lib/collect-channel-info');
 
 const kafka = new Kafka({
   clientId: HOSTNAME,
@@ -26,10 +26,10 @@ const influx = new InfluxDB({
   token: INFLUX_TOKEN
 });
 
-const COLLECTORS = {
-  'channel-info': collectChannelInfo
+const COLLECTOR_ITEMS = {
+  'channel-info': [verifyChannelInfo, collectChannelInfo]
 };
-const TARGET_TOPICS = Array.from(Object.getOwnPropertyNames(COLLECTORS));
+const TARGET_TOPICS = Array.from(Object.keys(COLLECTOR_ITEMS));
 
 async function init() {
   console.info('connecting to kafka');
@@ -45,6 +45,7 @@ async function init() {
   const db = mongo.db('vtuberstats');
   const vtuberMetaCollection = db.collection('vtuber-meta');
   const groupMetaCollection = db.collection('group-meta');
+  const channelInfoCollection = db.collection('channel-info');
 
   console.info('preparing influxdb write apis');
   const influxChannelStatsBucket = influx.getWriteApi('vtuberstats', 'channel-stats', 'ms');
@@ -53,42 +54,55 @@ async function init() {
   const ctx = {
     influxChannelStatsBucket,
     vtuberMetaCollection,
-    groupMetaCollection
+    groupMetaCollection,
+    channelInfoCollection
   };
 
   console.info('start reading data from kafka');
   await readMessageFromKafka(ctx);
 }
 
-registerExitListener();
 init();
 
 async function readMessageFromKafka(collectorCtx) {
   await kafkaDataConsumer.run({
     eachMessage: async ({ topic, message }) => {
       const value = JSON.parse(message.value.toString());
-      const { data, meta } = value;
+      const { meta, data } = value;
 
       if (
-        !value.hasOwnProperty('data') ||
         !value.hasOwnProperty('meta') ||
-        typeof data !== 'object' ||
-        typeof meta !== 'object'
+        !value.hasOwnProperty('data') ||
+        typeof meta !== 'object' ||
+        typeof data !== 'object'
       ) {
-        console.warn(`invalid message: '${message.value.toString()}'`);
+        console.warn(`dropping invalid message (no meta or data): '${message.value.toString()}'`);
         return;
       }
 
-      const collector = COLLECTORS[topic];
-      if (!collector) {
-        console.warn(`cannot find collector for topic '${topic}'`);
+      const item = COLLECTOR_ITEMS[topic];
+      if (!item) {
+        console.warn(`no collector found for topic '${topic}'`);
+        return;
+      }
+
+      const verify = item[0];
+      const collect = item[1];
+      try {
+        verify(meta, data);
+      } catch (e) {
+        console.warn(
+          `dropping invalid message (verify failed: '${e.message}'): '${message.value.toString()}'`
+        );
         return;
       }
 
       try {
-        await collector(collectorCtx, data, meta || {});
+        await collect(collectorCtx, meta, data);
       } catch (e) {
         console.error(`failed to collect message '${message.value.toString()}', err: ${e.stack}`);
+        // crash the consumer
+        throw e;
       }
     }
   });
