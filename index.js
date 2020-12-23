@@ -14,6 +14,7 @@ const { Kafka } = require('kafkajs');
 const { InfluxDB } = require('@influxdata/influxdb-client');
 const { MongoClient } = require('mongodb');
 const { verifyChannelInfo, collectChannelInfo } = require('./lib/collect-channel-info');
+const { verifyLivestreamInfo, collectLivestreamInfo } = require('./lib/collect-livestream-info');
 
 const kafka = new Kafka({
   clientId: HOSTNAME,
@@ -27,7 +28,8 @@ const influx = new InfluxDB({
 });
 
 const COLLECTOR_ITEMS = {
-  'channel-info': [verifyChannelInfo, collectChannelInfo]
+  'channel-info': [verifyChannelInfo, collectChannelInfo],
+  'livestream-info': [verifyLivestreamInfo, collectLivestreamInfo]
 };
 const TARGET_TOPICS = Array.from(Object.keys(COLLECTOR_ITEMS));
 
@@ -43,19 +45,19 @@ async function init() {
   await mongo.connect();
   addExitHook(async () => await mongo.close());
   const db = mongo.db('vtuberstats');
-  const vtuberMetaCollection = db.collection('vtuber-meta');
-  const groupMetaCollection = db.collection('group-meta');
   const channelInfoCollection = db.collection('channel-info');
+  const livestreamInfoCollection = db.collection('livestream-info');
 
   console.info('preparing influxdb write apis');
-  const influxChannelStatsBucket = influx.getWriteApi('vtuberstats', 'channel-stats', 'ms');
-  addExitHook(async () => await ctx.influxChannelStatsBucket.close());
+  const channelStatsBucket = influx.getWriteApi('vtuberstats', 'channel-stats', 'ms');
+  const livestreamStatsBucket = influx.getWriteApi('vtuberstats', 'livestream-stats', 'ms');
+  addExitHook(async () => await ctx.channelStatsBucket.close());
 
   const ctx = {
-    influxChannelStatsBucket,
-    vtuberMetaCollection,
-    groupMetaCollection,
-    channelInfoCollection
+    channelStatsBucket,
+    livestreamStatsBucket,
+    channelInfoCollection,
+    livestreamInfoCollection
   };
 
   console.info('start reading data from kafka');
