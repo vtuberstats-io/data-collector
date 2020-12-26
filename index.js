@@ -15,6 +15,8 @@ const { InfluxDB } = require('@influxdata/influxdb-client');
 const { MongoClient } = require('mongodb');
 const { verifyChannelInfo, collectChannelInfo } = require('./lib/collect-channel-info');
 const { verifyLivestreamInfo, collectLivestreamInfo } = require('./lib/collect-livestream-info');
+const { verifyVideoInfo, collectVideoInfo } = require('./lib/collect-video-info');
+const { verifyLivechatMessage, collectLivechatMessage } = require('./lib/collect-livechat-message');
 
 const kafka = new Kafka({
   clientId: HOSTNAME,
@@ -29,7 +31,9 @@ const influx = new InfluxDB({
 
 const COLLECTOR_ITEMS = {
   'channel-info': [verifyChannelInfo, collectChannelInfo],
-  'livestream-info': [verifyLivestreamInfo, collectLivestreamInfo]
+  'video-info': [verifyVideoInfo, collectVideoInfo],
+  'livestream-info': [verifyLivestreamInfo, collectLivestreamInfo],
+  'livechat-message': [verifyLivechatMessage, collectLivechatMessage]
 };
 const TARGET_TOPICS = Array.from(Object.keys(COLLECTOR_ITEMS));
 
@@ -46,17 +50,29 @@ async function init() {
   addExitHook(async () => await mongo.close());
   const db = mongo.db('vtuberstats');
   const channelInfoCollection = db.collection('channel-info');
+  const videoInfoCollection = db.collection('video-info');
   const livestreamInfoCollection = db.collection('livestream-info');
 
   console.info('preparing influxdb write apis');
   const channelStatsBucket = influx.getWriteApi('vtuberstats', 'channel-stats', 'ms');
+  const videoStatsBucket = influx.getWriteApi('vtuberstats', 'video-stats', 'ms');
   const livestreamStatsBucket = influx.getWriteApi('vtuberstats', 'livestream-stats', 'ms');
+  const livechatMessageBucket = influx.getWriteApi('vtuberstats', 'livechat-messages', 'ms');
+  const livechatSuperchatMessageBucket = influx.getWriteApi(
+    'vtuberstats',
+    'livechat-superchat-messages',
+    'ms'
+  );
   addExitHook(async () => await ctx.channelStatsBucket.close());
 
   const ctx = {
     channelStatsBucket,
     livestreamStatsBucket,
+    videoStatsBucket,
+    livechatMessageBucket,
+    livechatSuperchatMessageBucket,
     channelInfoCollection,
+    videoInfoCollection,
     livestreamInfoCollection
   };
 
@@ -88,8 +104,7 @@ async function readMessageFromKafka(collectorCtx) {
         return;
       }
 
-      const verify = item[0];
-      const collect = item[1];
+      const [verify, collect] = item;
       try {
         verify(meta, data);
       } catch (e) {
