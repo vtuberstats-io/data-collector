@@ -2,6 +2,8 @@ const KAFKA_BROKERS = process.env.KAFKA_BROKERS;
 const INFLUX_URL = process.env.INFLUX_URL;
 const INFLUX_TOKEN = process.env.INFLUX_TOKEN;
 const MONGODB_URL = process.env.MONGODB_URL;
+const UPDATE_USD_EXCHANGE_RATE_INTERVAL =
+  Number(process.env.UPDATE_USD_EXCHANGE_RATE_INTERVAL) || 60 * 60 * 3000; // 3 hours
 const HOSTNAME = process.env.HOSTNAME; // offered by kubernetes automatically
 
 if (!KAFKA_BROKERS || !INFLUX_URL || !INFLUX_TOKEN || !MONGODB_URL || !HOSTNAME) {
@@ -13,6 +15,7 @@ const { addExitHook } = require('exit-hook-plus');
 const { Kafka } = require('kafkajs');
 const { InfluxDB } = require('@influxdata/influxdb-client');
 const { MongoClient } = require('mongodb');
+const { updateUsdExchangeRateMapping } = require('./lib/superchat-amount-utils');
 const { verifyChannelInfo, collectChannelInfo } = require('./lib/collect-channel-info');
 const { verifyLivestreamInfo, collectLivestreamInfo } = require('./lib/collect-livestream-info');
 const { verifyVideoInfo, collectVideoInfo } = require('./lib/collect-video-info');
@@ -49,9 +52,12 @@ async function init() {
   await mongo.connect();
   addExitHook(async () => await mongo.close());
   const db = mongo.db('vtuberstats');
+  const usdExchangeRateCollection = db.collection('usd-exchange-rate');
   const channelInfoCollection = db.collection('channel-info');
   const videoInfoCollection = db.collection('video-info');
   const livestreamInfoCollection = db.collection('livestream-info');
+
+  await initUsdExchangeRateUpdating(usdExchangeRateCollection);
 
   console.info('preparing influxdb write apis');
   const channelStatsBucket = influx.getWriteApi('vtuberstats', 'channel-stats', 'ms');
@@ -86,24 +92,13 @@ async function readMessageFromKafka(collectorCtx) {
   await kafkaDataConsumer.run({
     eachMessage: async ({ topic, message }) => {
       const value = JSON.parse(message.value.toString());
-      const { meta, data } = value;
-
-      if (
-        !value.hasOwnProperty('meta') ||
-        !value.hasOwnProperty('data') ||
-        typeof meta !== 'object' ||
-        typeof data !== 'object'
-      ) {
-        console.warn(`dropping invalid message (no meta or data): '${message.value.toString()}'`);
-        return;
-      }
-
       const item = COLLECTOR_ITEMS[topic];
       if (!item) {
         console.warn(`no collector found for topic '${topic}'`);
         return;
       }
 
+      const { meta, data } = value;
       const [verify, collect] = item;
       try {
         verify(meta, data);
@@ -123,4 +118,19 @@ async function readMessageFromKafka(collectorCtx) {
       }
     }
   });
+}
+
+async function initUsdExchangeRateUpdating(collection) {
+  console.info('loading USD exchange rate mapping from mongodb for the first time');
+  await updateUsdExchangeRateMapping(collection);
+  const action = async () => {
+    console.info('updating loaded USD exchange rate mapping');
+    try {
+      await updateUsdExchangeRateMapping(collection);
+    } catch (e) {
+      console.warn(`failed to update usd exchange rate mapping, error: ${e.stack}`);
+    }
+    setTimeout(action, UPDATE_USD_EXCHANGE_RATE_INTERVAL);
+  };
+  setTimeout(action, UPDATE_USD_EXCHANGE_RATE_INTERVAL);
 }
