@@ -8,6 +8,8 @@ vars:
     source: env
   - name: ENV_MONGODB_URL
     source: env
+  - name: ENV_ELASTICSEARCH_URL
+    source: env
 images:
   app:
     image: devspace
@@ -34,6 +36,8 @@ deployments:
                 value: '${ENV_INFLUX_TOKEN}'
               - name: MONGODB_URL
                 value: '${ENV_MONGODB_URL}'
+              - name: ELASTICSEARCH_URL
+                value: '${ENV_ELASTICSEARCH_URL}'
         service:
           ports:
             - port: 9229

@@ -10,9 +10,10 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@elastic/elasticsearch": "^7.10.0",
     "@influxdata/influxdb-client": "^1.9.0",
     "check-types": "^11.1.2",
-    "exit-hook-plus": "0.0.1",
+    "exit-hook-plus": "^0.2.0",
     "kafkajs": "^1.15.0",
     "mongodb": "^3.6.3",
     "ow": "^0.21.0"
