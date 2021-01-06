@@ -7,8 +7,15 @@ const UPDATE_USD_EXCHANGE_RATE_INTERVAL =
   Number(process.env.UPDATE_USD_EXCHANGE_RATE_INTERVAL) || 60 * 60 * 3000; // 3 hours
 const HOSTNAME = process.env.HOSTNAME; // offered by kubernetes automatically
 
-if (!KAFKA_BROKERS || !INFLUX_URL || !INFLUX_TOKEN || !MONGODB_URL || !HOSTNAME) {
-  console.error(`missing environment variables, env: ${JSON.stringify(process.env)}`);
+if (
+  !KAFKA_BROKERS ||
+  !INFLUX_URL ||
+  !INFLUX_TOKEN ||
+  !MONGODB_URL ||
+  !UPDATE_USD_EXCHANGE_RATE_INTERVAL ||
+  !HOSTNAME
+) {
+  console.error(`missing or invalid environment variables, env: ${JSON.stringify(process.env)}`);
   process.exit(1);
 }
 
